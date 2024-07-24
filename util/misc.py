@@ -14,7 +14,8 @@ from pathlib import Path
 
 import torch
 import torch.distributed as dist
-from torch._six import inf
+# from torch._six import inf
+from torch import inf
 
 
 class SmoothedValue(object):
@@ -233,7 +234,7 @@ def init_distributed_mode(args):
         return
 
     args.distributed = True
-
+    print(args.gpu)
     torch.cuda.set_device(args.gpu)
     args.dist_backend = 'nccl'
     print('| distributed init (rank {}): {}, gpu {}'.format(
