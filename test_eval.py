@@ -20,7 +20,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--model', default='ae_d512_m512', type=str,
                     metavar='MODEL', help='Name of model to train')
 parser.add_argument(
-    '--pth', default='pretrained/ae_d512_m512/checkpoint-199.pth', type=str)
+    '--pth', default='pretrained/ae/ae_d512_m512/checkpoint-199.pth', type=str)
 parser.add_argument('--device', default='cuda',
                     help='device to use for training / testing')
 parser.add_argument('--seed', default=0, type=int)
@@ -28,7 +28,7 @@ parser.add_argument('--seed', default=0, type=int)
 #                     help='dataset path')
 args = parser.parse_args()
 
-
+N = 2048
 # import utils
 
 def main():
@@ -39,7 +39,7 @@ def main():
 
     cudnn.benchmark = True
 
-    model = models_ae.__dict__[args.model]()
+    model = models_ae.__dict__[args.model](N=N)
     device = torch.device(args.device)
 
     model.eval()
@@ -54,15 +54,19 @@ def main():
     y = np.linspace(-1, 1, density+1)
     z = np.linspace(-1, 1, density+1)
     xv, yv, zv = np.meshgrid(x, y, z)
-    grid = torch.from_numpy(np.stack([xv, yv, zv]).astype(
-        np.float32)).view(3, -1).transpose(0, 1)[None].cuda()
+    grid = torch.Tensor(np.stack([xv, yv, zv]).astype(
+        np.float32)).view(3, -1).transpose(0, 1)[None].to(device)
 
     with torch.no_grad():
 
         # points, labels, surface = ...
-        surface = np.load('/home/ljf/p.npz')['vol_points']
-        surface = torch.from_numpy(surface)
+        surface = np.load('/data/ljf/mask.npz')['vol_points']
+        surface = torch.Tensor(surface)
         surface = surface.unsqueeze(0)
+        print(surface.dtype)
+        print(surface.shape)
+        
+        # surface = surface.to(device)
         # print(surface.shape)
         # exit(0)
         
@@ -74,11 +78,20 @@ def main():
         # pred[output[0] >= 0] = 1
 
         ind = np.random.default_rng().choice(
-            surface[0].numpy().shape[0], 2048, replace=False)
-
+            surface[0].numpy().shape[0], N, replace=False
+        )
+        print(ind.dtype)
+        print(ind.shape)
+        ind = torch.Tensor(ind).long()
+        print(ind.dtype)
+        print(ind.shape)
+        # ind = ind.to(device)
         surface2048 = surface[0][ind][None].float()
         # print(surface2048.dtype)
         surface2048 = surface2048.to(device, non_blocking=True)
+
+        input_points = trimesh.PointCloud(surface2048[0].cpu().numpy())
+        input_points.export('input.ply')
 
         output = model(surface2048, grid)['logits']
         volume = output.view(density+1, density+1, density+1).permute(1, 0, 2).cpu().numpy()
@@ -88,13 +101,22 @@ def main():
         verts -= 1.
         m = trimesh.Trimesh(verts, faces)
 
-        m.export('test.obj')
-        import pyrender
+        m.export('output.obj')
+        # import pyrender
 
-        scene = pyrender.Scene()
-        mm = pyrender.Mesh.from_trimesh(m)
-        scene.add(mm) 
-        viewer = pyrender.Viewer(scene, use_raymond_lighting=True, point_size=1)
+        # scene = pyrender.Scene()
+        # mm = pyrender.Mesh.from_trimesh(m)
+        # scene.add(mm) 
+        # renderer = pyrender.OffscreenRenderer(viewport_width=800, viewport_height=600)
+        # color, depth = renderer.render(scene)
+        
+        # # 保存渲染结果为图片
+        # import imageio
+        # imageio.imwrite('output.png', color)
+        
+        # 清理资源
+        # renderer.delete()
+        # viewer = pyrender.Viewer(scene, use_raymond_lighting=True, point_size=1)
 
         # metric_loggers = []
         # for category, _ in list(category_ids.items()):#[18:]:

@@ -1,6 +1,10 @@
 output/
 pretrained/
 
+class_cond_mid/
+class_cond_obj/
+*.obj
+*.ply
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -13,9 +13,9 @@ import models_class_cond, models_ae
 
 from pathlib import Path
 
+N = 2048
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser('', add_help=False)
     # parser.add_argument('--ae', type=str, required=True) # 'kl_d512_m512_l16'
     # parser.add_argument('--ae-pth', type=str, required=True) # 'output/ae/kl_d512_m512_l16/checkpoint-199.pth'
@@ -28,15 +28,12 @@ if __name__ == "__main__":
     parser.add_argument('--dm-pth', type=str, default='pretrained/class_cond_dm/kl_d512_m512_l8_d24_edm/checkpoint-499.pth')
     parser.add_argument('--device', default='cuda',
                     help='device to use for training / testing')
-    
     args = parser.parse_args()
     print(args)
 
-    Path("class_cond_obj/{}".format(args.dm)).mkdir(parents=True, exist_ok=True)
-
     device = args.device
 
-    ae = models_ae.__dict__[args.ae]()
+    ae = models_ae.__dict__[args.ae](N=N)
     ae.eval()
     ae.load_state_dict(torch.load(args.ae_pth)['model'])
     ae.to(device)
@@ -55,30 +52,46 @@ if __name__ == "__main__":
     xv, yv, zv = np.meshgrid(x, y, z)
     grid = torch.from_numpy(np.stack([xv, yv, zv]).astype(np.float32)).view(3, -1).transpose(0, 1)[None].to(device, non_blocking=True)
 
-    total = 1000
-    iters = 100
-
-
     with torch.no_grad():
-        for category_id in [0]:
-            print(category_id)
-            for i in range(1000//iters):
-                sampled_array = model.sample(cond=torch.Tensor([category_id]*iters).long().to(device), batch_seeds=torch.arange(i*iters, (i+1)*iters).to(device)).float()
+        surface = np.load('/data/ljf/plane.npz')['vol_points']
+        surface = torch.Tensor(surface)
+        surface = surface.unsqueeze(0)
+        print(surface.dtype)
+        print(surface.shape)
+ 
+        ind = np.random.default_rng().choice(
+            surface[0].numpy().shape[0], N, replace=False
+        )
+        print(ind.dtype)
+        print(ind.shape)
+        ind = torch.Tensor(ind).long()
+        print(ind.dtype)
+        print(ind.shape)
+        # ind = ind.to(device)
+        surface2048 = surface[0][ind][None].float()
+        # print(surface2048.dtype)
+        surface2048 = surface2048.to(device, non_blocking=True)
 
-                print(sampled_array.shape, sampled_array.max(), sampled_array.min(), sampled_array.mean(), sampled_array.std())
+        input_points = trimesh.PointCloud(surface2048[0].cpu().numpy())
+        input_points.export('input.ply')
 
-                for j in range(sampled_array.shape[0]):
-                    
-                    logits = ae.decode(sampled_array[j:j+1], grid)
+        kl, latents = ae.encode(surface2048)
+        # model(surface2048, grid)['logits']
+        # print(latents.shape)
+        # print(latents.dtype)
+        # exit(0)
+        # denoise latents
+        latents = model.denoise(
+            latents, cond=torch.Tensor([0]).long().to(device),
+            num_steps=18, start_step=6
+        ).float()
+        # print(latents.dtype)
+        output = ae.decode(latents, grid).squeeze(-1)
+        volume = output.view(density+1, density+1, density+1).permute(1, 0, 2).cpu().numpy()
 
-                    logits = logits.detach()
-                    
-                    volume = logits.view(density+1, density+1, density+1).permute(1, 0, 2).cpu().numpy()
-                    verts, faces = mcubes.marching_cubes(volume, 0)
+        verts, faces = mcubes.marching_cubes(volume, 0)
+        verts *= gap
+        verts -= 1.
+        m = trimesh.Trimesh(verts, faces)
 
-                    verts *= gap
-                    verts -= 1
-
-                    m = trimesh.Trimesh(verts, faces)
-                    m.export('class_cond_obj/{}/{:02d}-{:05d}.obj'.format(args.dm, category_id, i*iters+j))
-                    # exit(0)
+        m.export('output.obj')

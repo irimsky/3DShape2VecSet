@@ -17,24 +17,16 @@ from pathlib import Path
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser('', add_help=False)
-    # parser.add_argument('--ae', type=str, required=True) # 'kl_d512_m512_l16'
-    # parser.add_argument('--ae-pth', type=str, required=True) # 'output/ae/kl_d512_m512_l16/checkpoint-199.pth'
-    # parser.add_argument('--dm', type=str, required=True) # 'kl_d512_m512_l16_edm'
-    # parser.add_argument('--dm-pth', type=str, required=True) # 'output/uncond_dm/kl_d512_m512_l16_edm/checkpoint-999.pth'
-    
     parser.add_argument('--ae', type=str, default= 'kl_d512_m512_l8')
-    parser.add_argument('--ae-pth', type=str, default='pretrained/ae/kl_d512_m512_l8/checkpoint-199.pth')
-    parser.add_argument('--dm', type=str, default='kl_d512_m512_l8_d24_edm')
-    parser.add_argument('--dm-pth', type=str, default='pretrained/class_cond_dm/kl_d512_m512_l8_d24_edm/checkpoint-499.pth')
-    parser.add_argument('--device', default='cuda',
-                    help='device to use for training / testing')
-    
+    parser.add_argument('--ae-pth', type=str, default='output/ae/kl_d512_m512_l8/checkpoint-199.pth')
+    parser.add_argument('--dm', type=str, default='kl_d512_m512_l16_edm')
+    parser.add_argument('--dm-pth', type=str, default='output/class_cond_dm/kl_d512_m512_l8_d24_edm/checkpoint-499.pth')
     args = parser.parse_args()
     print(args)
 
     Path("class_cond_obj/{}".format(args.dm)).mkdir(parents=True, exist_ok=True)
 
-    device = args.device
+    device = torch.device('cuda:0')
 
     ae = models_ae.__dict__[args.ae]()
     ae.eval()
@@ -60,7 +52,7 @@ if __name__ == "__main__":
 
 
     with torch.no_grad():
-        for category_id in [0]:
+        for category_id in [18]:
             print(category_id)
             for i in range(1000//iters):
                 sampled_array = model.sample(cond=torch.Tensor([category_id]*iters).long().to(device), batch_seeds=torch.arange(i*iters, (i+1)*iters).to(device)).float()
@@ -81,4 +73,3 @@ if __name__ == "__main__":
 
                     m = trimesh.Trimesh(verts, faces)
                     m.export('class_cond_obj/{}/{:02d}-{:05d}.obj'.format(args.dm, category_id, i*iters+j))
-                    # exit(0)

@@ -26,20 +26,14 @@ if __name__ == "__main__":
     parser.add_argument('--ae-pth', type=str, default='pretrained/ae/kl_d512_m512_l8/checkpoint-199.pth')
     parser.add_argument('--dm', type=str, default='kl_d512_m512_l8_d24_edm')
     parser.add_argument('--dm-pth', type=str, default='pretrained/class_cond_dm/kl_d512_m512_l8_d24_edm/checkpoint-499.pth')
-    parser.add_argument('--device', default='cuda',
-                    help='device to use for training / testing')
+    
     
     args = parser.parse_args()
     print(args)
 
     Path("class_cond_obj/{}".format(args.dm)).mkdir(parents=True, exist_ok=True)
 
-    device = args.device
-
-    ae = models_ae.__dict__[args.ae]()
-    ae.eval()
-    ae.load_state_dict(torch.load(args.ae_pth)['model'])
-    ae.to(device)
+    device = torch.device('cuda:0')
 
     model = models_class_cond.__dict__[args.dm]()
     model.eval()
@@ -60,25 +54,26 @@ if __name__ == "__main__":
 
 
     with torch.no_grad():
-        for category_id in [0]:
+        for category_id in [18]:
             print(category_id)
             for i in range(1000//iters):
                 sampled_array = model.sample(cond=torch.Tensor([category_id]*iters).long().to(device), batch_seeds=torch.arange(i*iters, (i+1)*iters).to(device)).float()
 
                 print(sampled_array.shape, sampled_array.max(), sampled_array.min(), sampled_array.mean(), sampled_array.std())
 
-                for j in range(sampled_array.shape[0]):
+                Path("class_cond_mid/{}/{:02d}/{}".format(args.dm, category_id, i)).mkdir(parents=True, exist_ok=True)
+                np.save("class_cond_mid/{}/{:02d}/{}/mid.npy".format(args.dm, category_id, i), sampled_array.cpu().numpy())
+                # for j in range(sampled_array.shape[0]):
                     
-                    logits = ae.decode(sampled_array[j:j+1], grid)
+                #     logits = ae.decode(sampled_array[j:j+1], grid)
 
-                    logits = logits.detach()
+                #     logits = logits.detach()
                     
-                    volume = logits.view(density+1, density+1, density+1).permute(1, 0, 2).cpu().numpy()
-                    verts, faces = mcubes.marching_cubes(volume, 0)
+                #     volume = logits.view(density+1, density+1, density+1).permute(1, 0, 2).cpu().numpy()
+                #     verts, faces = mcubes.marching_cubes(volume, 0)
 
-                    verts *= gap
-                    verts -= 1
+                #     verts *= gap
+                #     verts -= 1
 
-                    m = trimesh.Trimesh(verts, faces)
-                    m.export('class_cond_obj/{}/{:02d}-{:05d}.obj'.format(args.dm, category_id, i*iters+j))
-                    # exit(0)
+                #     m = trimesh.Trimesh(verts, faces)
+                #     m.export('class_cond_obj/{}/{:02d}-{:05d}.obj'.format(args.dm, category_id, i*iters+j))

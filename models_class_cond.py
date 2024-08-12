@@ -269,6 +269,47 @@ def edm_sampler(
 
     return x_next
 
+def edm_sampler2(
+    net, latents, class_labels=None, randn_like=torch.randn_like,
+    start_step=0,
+    num_steps=18, sigma_min=0.002, sigma_max=80, rho=7,
+    # S_churn=40, S_min=0.05, S_max=50, S_noise=1.003,
+    S_churn=0, S_min=0, S_max=float('inf'), S_noise=1,
+):
+    # Adjust noise levels based on what's supported by the network.
+    sigma_min = max(sigma_min, net.sigma_min)
+    sigma_max = min(sigma_max, net.sigma_max)
+
+    # Time step discretization.
+    step_indices = torch.arange(num_steps, dtype=torch.float64, device=latents.device)
+    t_steps = (sigma_max ** (1 / rho) + step_indices / (num_steps - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
+    t_steps = torch.cat([net.round_sigma(t_steps), torch.zeros_like(t_steps[:1])]) # t_N = 0
+
+    # Main sampling loop.
+    x_next = latents.to(torch.float64) * t_steps[0]
+    for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])): # 0, ..., N-1
+        x_cur = x_next
+        if i < start_step:
+            continue
+        # Increase noise temporarily.
+        gamma = min(S_churn / num_steps, np.sqrt(2) - 1) if S_min <= t_cur <= S_max else 0
+        t_hat = net.round_sigma(t_cur + gamma * t_cur)
+        x_hat = x_cur + (t_hat ** 2 - t_cur ** 2).sqrt() * S_noise * randn_like(x_cur)
+
+        # Euler step.
+        denoised = net(x_hat, t_hat, class_labels).to(torch.float64)
+        d_cur = (x_hat - denoised) / t_hat
+        x_next = x_hat + (t_next - t_hat) * d_cur
+
+        # Apply 2nd order correction.
+        if i < num_steps - 1:
+            denoised = net(x_next, t_next, class_labels).to(torch.float64)
+            d_prime = (x_next - denoised) / t_next
+            x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
+
+    return x_next
+
+
 def ablation_sampler(
     net, latents, class_labels=None, randn_like=torch.randn_like,
     num_steps=512, sigma_min=None, sigma_max=None, rho=7,
@@ -489,11 +530,13 @@ class EDMPrecond(torch.nn.Module):
         return self.category_emb(class_labels).unsqueeze(1)
 
     def forward(self, x, sigma, class_labels=None, force_fp32=False, **model_kwargs):
-                
-        if class_labels.dtype == torch.float32:
-            cond_emb = class_labels
+        if class_labels is not None:
+            if class_labels.dtype == torch.float32:
+                cond_emb = class_labels
+            else:
+                cond_emb = self.category_emb(class_labels).unsqueeze(1)
         else:
-            cond_emb = self.category_emb(class_labels).unsqueeze(1)
+            cond_emb = None
 
         x = x.to(torch.float32)
         sigma = sigma.to(torch.float32).reshape(-1, 1, 1)
@@ -530,6 +573,30 @@ class EDMPrecond(torch.nn.Module):
         latents = rnd.randn([batch_size, self.n_latents, self.channels], device=device)
 
         return edm_sampler(self, latents, cond, randn_like=rnd.randn_like)
+
+    @torch.no_grad()
+    def denoise(self, latents, num_steps=18, start_step=0, cond=None, batch_seeds=None):
+        # if cond is not None:
+        #     batch_size, device = *cond.shape, cond.device
+        #     if batch_seeds is None:
+        #         batch_seeds = torch.arange(batch_size)
+        # else:
+        #     device = batch_seeds.device
+        #     batch_size = batch_seeds.shape[0]
+        
+        assert(latents.shape[1] == self.n_latents and latents.shape[2] == self.channels)
+        batch_size = latents.shape[0]
+
+        device = latents.device
+        if batch_seeds is None:
+            batch_seeds = torch.arange(batch_size)
+
+        rnd = StackedRandomGenerator(device, batch_seeds)
+        return edm_sampler2(self, latents, cond, num_steps=num_steps, start_step=start_step,
+                             randn_like=rnd.randn_like)
+    
+        
+        
 
 
 def kl_d512_m512_l8_edm():

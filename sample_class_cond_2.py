@@ -26,26 +26,25 @@ if __name__ == "__main__":
     parser.add_argument('--ae-pth', type=str, default='pretrained/ae/kl_d512_m512_l8/checkpoint-199.pth')
     parser.add_argument('--dm', type=str, default='kl_d512_m512_l8_d24_edm')
     parser.add_argument('--dm-pth', type=str, default='pretrained/class_cond_dm/kl_d512_m512_l8_d24_edm/checkpoint-499.pth')
-    parser.add_argument('--device', default='cuda',
-                    help='device to use for training / testing')
+    
     
     args = parser.parse_args()
     print(args)
 
     Path("class_cond_obj/{}".format(args.dm)).mkdir(parents=True, exist_ok=True)
 
-    device = args.device
+    device = torch.device('cuda:0')
 
     ae = models_ae.__dict__[args.ae]()
     ae.eval()
     ae.load_state_dict(torch.load(args.ae_pth)['model'])
     ae.to(device)
 
-    model = models_class_cond.__dict__[args.dm]()
-    model.eval()
+    # model = models_class_cond.__dict__[args.dm]()
+    # model.eval()
 
-    model.load_state_dict(torch.load(args.dm_pth)['model'])
-    model.to(device)
+    # model.load_state_dict(torch.load(args.dm_pth)['model'])
+    # model.to(device)
 
     density = 128
     gap = 2. / density
@@ -60,11 +59,13 @@ if __name__ == "__main__":
 
 
     with torch.no_grad():
-        for category_id in [0]:
+        for category_id in [18]:
             print(category_id)
             for i in range(1000//iters):
-                sampled_array = model.sample(cond=torch.Tensor([category_id]*iters).long().to(device), batch_seeds=torch.arange(i*iters, (i+1)*iters).to(device)).float()
-
+                # sampled_array = model.sample(cond=torch.Tensor([category_id]*iters).long().to(device), batch_seeds=torch.arange(i*iters, (i+1)*iters).to(device)).float()
+                sampled_array = np.load("class_cond_mid/{}/{:02d}/{}/mid.npy".format(args.dm, category_id, i))
+                sampled_array = torch.Tensor(sampled_array).to(device)
+                
                 print(sampled_array.shape, sampled_array.max(), sampled_array.min(), sampled_array.mean(), sampled_array.std())
 
                 for j in range(sampled_array.shape[0]):
@@ -81,4 +82,3 @@ if __name__ == "__main__":
 
                     m = trimesh.Trimesh(verts, faces)
                     m.export('class_cond_obj/{}/{:02d}-{:05d}.obj'.format(args.dm, category_id, i*iters+j))
-                    # exit(0)
