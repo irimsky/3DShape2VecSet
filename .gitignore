@@ -9,6 +9,7 @@ class_cond_obj/
 *.ply
 plot.png
 
+hf_token.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
