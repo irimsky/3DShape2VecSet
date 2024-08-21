@@ -8,6 +8,7 @@ class_cond_obj/
 *.obj
 *.ply
 plot.png
+huggingface_download.py
 
 hf_token.txt
 
