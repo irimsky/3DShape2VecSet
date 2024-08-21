@@ -58,7 +58,8 @@ class CrossAttention(nn.Module):
 
         if context is None:
             context = x
-
+        # print(context.shape)
+        # print(self.to_k)
         k = self.to_k(context)
         v = self.to_v(context)
 
@@ -162,6 +163,7 @@ class BasicTransformerBlock(nn.Module):
             drop_path) if drop_path > 0. else nn.Identity()
 
     def forward(self, x, t, context=None):
+        # print("Basic", context.shape)
         x = self.drop_path1(self.ls1(self.attn1(self.norm1(x, t)))) + x
         x = self.drop_path2(self.ls2(self.attn2(self.norm2(x, t), context=context))) + x
         x = self.drop_path3(self.ls3(self.ff(self.norm3(x, t)))) + x
@@ -464,13 +466,13 @@ def random_masking(self, x, mask_ratio):
 
     return x_masked, mask, ids_restore
 
-class EDMLoss:
+class EDMLoss_coarse:
     def __init__(self, P_mean=-1.2, P_std=1.2, sigma_data=1):
         self.P_mean = P_mean
         self.P_std = P_std
         self.sigma_data = sigma_data
 
-    def __call__(self, net, inputs, labels=None, augment_pipe=None):
+    def __call__(self, net, inputs, coarse_latents=None, augment_pipe=None):
         rnd_normal = torch.randn([inputs.shape[0], 1, 1], device=inputs.device)
         # rnd_normal = torch.randn([1, 1, 1], device=inputs.device).repeat(inputs.shape[0], 1, 1)
 
@@ -479,10 +481,14 @@ class EDMLoss:
         y, augment_labels = augment_pipe(inputs) if augment_pipe is not None else (inputs, None)
 
         n = torch.randn_like(y) * sigma
+        # print("y+n", type(y+n), (y+n).shape)
+        # print("sigma", type(sigma), sigma.shape)
+        # print("cond", type(coarse_latents), coarse_latents.shape)
 
-        D_yn = net(y + n, sigma, labels)
+        D_yn = net(y + n, sigma, coarse_latents)
         loss = weight * ((D_yn - y) ** 2)
         return loss.mean()
+
 
 class StackedRandomGenerator:
     def __init__(self, device, seeds):
@@ -501,7 +507,7 @@ class StackedRandomGenerator:
         return torch.stack([torch.randint(*args, size=size[1:], generator=gen, **kwargs) for gen in self.generators])
 
 
-class EDMPrecond(torch.nn.Module):
+class EDMPrecond_coarse(torch.nn.Module):
     def __init__(self,
         n_latents = 512,
         channels = 8, 
@@ -524,19 +530,20 @@ class EDMPrecond(torch.nn.Module):
 
         self.model = LatentArrayTransformer(in_channels=channels, t_channels=256, n_heads=n_heads, d_head=d_head, depth=depth)
 
-        self.category_emb = nn.Embedding(55, n_heads * d_head)
+        # self.category_emb = nn.Embedding(55, n_heads * d_head)
 
-    def emb_category(self, class_labels):
-        return self.category_emb(class_labels).unsqueeze(1)
+    # def emb_category(self, class_labels):
+    #     return self.category_emb(class_labels).unsqueeze(1)
 
-    def forward(self, x, sigma, class_labels=None, force_fp32=False, **model_kwargs):
-        if class_labels is not None:
-            if class_labels.dtype == torch.float32:
-                cond_emb = class_labels
-            else:
-                cond_emb = self.category_emb(class_labels).unsqueeze(1)
-        else:
-            cond_emb = None
+    def forward(self, x, sigma, coarse_latents=None, force_fp32=False, **model_kwargs):
+        # if class_labels is not None:
+        #     if class_labels.dtype == torch.float32:
+        #         cond_emb = class_labels
+        #     else:
+        #         cond_emb = self.category_emb(class_labels).unsqueeze(1)
+        # else:
+        #     cond_emb = None
+
 
         x = x.to(torch.float32)
         sigma = sigma.to(torch.float32).reshape(-1, 1, 1)
@@ -547,7 +554,8 @@ class EDMPrecond(torch.nn.Module):
         c_in = 1 / (self.sigma_data ** 2 + sigma ** 2).sqrt()
         c_noise = sigma.log() / 4
 
-        F_x = self.model((c_in * x).to(dtype), c_noise.flatten(), cond=cond_emb, **model_kwargs)
+
+        F_x = self.model((c_in * x).to(dtype), c_noise.flatten(), cond=coarse_latents, **model_kwargs)
         assert F_x.dtype == dtype
         D_x = c_skip * x + c_out * F_x.to(torch.float32)
         return D_x
@@ -559,7 +567,7 @@ class EDMPrecond(torch.nn.Module):
     def sample(self, cond, batch_seeds=None):
         # print(batch_seeds)
         if cond is not None:
-            batch_size, device = *cond.shape, cond.device
+            batch_size, device = cond.shape[0], cond.device
             if batch_seeds is None:
                 batch_seeds = torch.arange(batch_size)
         else:
@@ -589,37 +597,35 @@ class EDMPrecond(torch.nn.Module):
 
         device = latents.device
         if batch_seeds is None:
-            # batch_seeds = torch.arange(batch_size)
-            batch_seeds = torch.rand((batch_size))
+            batch_seeds = torch.arange(batch_size)
 
         rnd = StackedRandomGenerator(device, batch_seeds)
         return edm_sampler2(self, latents, cond, num_steps=num_steps, start_step=start_step,
                              randn_like=rnd.randn_like)
     
-        
-        
+       
 
 
 def kl_d512_m512_l8_edm():
-    model = EDMPrecond(n_latents=512, channels=8)
+    model = EDMPrecond_coarse(n_latents=512, channels=8)
     return model
 
 def kl_d512_m512_l16_edm():
-    model = EDMPrecond(n_latents=512, channels=16)
+    model = EDMPrecond_coarse(n_latents=512, channels=16)
     return model
 
 def kl_d512_m512_l32_edm():
-    model = EDMPrecond(n_latents=512, channels=32)
+    model = EDMPrecond_coarse(n_latents=512, channels=32)
     return model
 
 def kl_d512_m512_l4_d24_edm():
-    model = EDMPrecond(n_latents=512, channels=4, depth=24)
+    model = EDMPrecond_coarse(n_latents=512, channels=4, depth=24)
     return model
 
 def kl_d512_m512_l8_d24_edm():
-    model = EDMPrecond(n_latents=512, channels=8, depth=24)
+    model = EDMPrecond_coarse(n_latents=512, channels=8, depth=24)
     return model
 
 def kl_d512_m512_l32_d24_edm():
-    model = EDMPrecond(n_latents=512, channels=32, depth=24)
+    model = EDMPrecond_coarse(n_latents=512, channels=32, depth=24)
     return model

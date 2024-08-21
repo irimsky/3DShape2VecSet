@@ -1,0 +1,12 @@
+python main_ae_coarse.py \
+    --accum_iter=2 \
+    --model ae_d512_m512  \
+    --output_dir output_refine/ae/ae_d512_m512 \
+    --log_dir output_refine/ae/ae_d512_m512 \
+    --num_workers 60 \
+    --point_cloud_size 2048 \
+    --batch_size 2 \
+    --epochs 400 \
+    --warmup_epochs 5 \
+    --data_path \
+    --resume pretrained/ae/ae_d512_m512/checkpoint-199.pth

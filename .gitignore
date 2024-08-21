@@ -1,10 +1,14 @@
 output/
+output_coarse/
 pretrained/
+output_*/
 
 class_cond_mid/
 class_cond_obj/
 *.obj
 *.ply
+plot.png
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

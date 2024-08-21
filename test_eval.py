@@ -13,6 +13,8 @@ import torch.nn.functional as F
 import torch
 import yaml
 import math
+from torch_cluster import fps
+
 
 import argparse
 
@@ -28,7 +30,7 @@ parser.add_argument('--seed', default=0, type=int)
 #                     help='dataset path')
 args = parser.parse_args()
 
-N = 2048
+N = 2048*4
 # import utils
 
 def main():
@@ -56,15 +58,47 @@ def main():
     xv, yv, zv = np.meshgrid(x, y, z)
     grid = torch.Tensor(np.stack([xv, yv, zv]).astype(
         np.float32)).view(3, -1).transpose(0, 1)[None].to(device)
+    # print(grid)
 
     with torch.no_grad():
-
+        # path = '/data/ljf/sdfdata/xzkb/xzkb.npz'
+        path = '/data/ljf/shapenet_test/10155655850468db78d106ce0a280f87/10155655850468db78d106ce0a280f87_points.npz'
+        path = '/data/ljf/shapenet_test/1006be65e7bc937e9141f9b58470d646/1006be65e7bc937e9141f9b58470d646_points.npz'
+        
         # points, labels, surface = ...
-        surface = np.load('/data/ljf/mask.npz')['vol_points']
+        # surface = np.load(path)['vol_points']
+        surface = np.load(path)['surface_points']
+        
+        # model_path = '/data/ljf/shapenet_test/10155655850468db78d106ce0a280f87/10155655850468db78d106ce0a280f87.gltf'
+        # model_path = '/data/ljf/airplane/10cfc2090a2ade124c3a35cee92bb95b.gltf'
+        # # model_path = 'class_cond_obj/kl_d512_m512_l8_d24_edm/18-00004.obj'
+        # mesh = trimesh.load(model_path)
+        # if isinstance(mesh, trimesh.Scene):
+        #     mesh = trimesh.util.concatenate(mesh.dump())
+        
+        # bounds = mesh.bounds
+
+        # max_dimension = np.max(bounds[1] - bounds[0])
+
+        # scale_factor = 2.0 / max_dimension  # 缩放到[-1, 1]范围
+
+        # center = (bounds[1] + bounds[0]) / 2.0
+
+        # mesh.apply_translation(-center)
+
+        # mesh.apply_scale(scale_factor)
+
+        # surface = mesh.sample(N)
+        # surface = (surface - mesh.centroid) / (mesh.bounding_box)
+
+
+        name = path.split('/')[-1].split('.')[0]
         surface = torch.Tensor(surface)
         surface = surface.unsqueeze(0)
+        # print(surface)
         print(surface.dtype)
         print(surface.shape)
+        print(surface.min(), surface.max())
         
         # surface = surface.to(device)
         # print(surface.shape)
@@ -80,28 +114,38 @@ def main():
         ind = np.random.default_rng().choice(
             surface[0].numpy().shape[0], N, replace=False
         )
-        print(ind.dtype)
-        print(ind.shape)
+        # print(ind.dtype)
+        # print(ind.shape)
         ind = torch.Tensor(ind).long()
-        print(ind.dtype)
-        print(ind.shape)
+
+        # print(ind.shape)
+        # surface_tensor = torch.Tensor(surface[0])
+        # ratio = (N+100) / surface_tensor.shape[0]
+        # batch = torch.Tensor([0] * surface_tensor.shape[0]).long()
+        # ind = fps(surface_tensor, batch, ratio=ratio)
+        # if ind.shape[0] > N:
+        #     ind = ind[:N]
+        
         # ind = ind.to(device)
         surface2048 = surface[0][ind][None].float()
         # print(surface2048.dtype)
         surface2048 = surface2048.to(device, non_blocking=True)
+
 
         input_points = trimesh.PointCloud(surface2048[0].cpu().numpy())
         input_points.export('input.ply')
 
         output = model(surface2048, grid)['logits']
         volume = output.view(density+1, density+1, density+1).permute(1, 0, 2).cpu().numpy()
+        print(volume.min(), volume.max())
 
         verts, faces = mcubes.marching_cubes(volume, 0)
+        # print(verts.min(), verts.max())
         verts *= gap
         verts -= 1.
         m = trimesh.Trimesh(verts, faces)
 
-        m.export('output.obj')
+        m.export(f'out_obj/{name}.obj')
         # import pyrender
 
         # scene = pyrender.Scene()

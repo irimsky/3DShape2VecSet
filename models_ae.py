@@ -395,7 +395,7 @@ class KLAutoEncoder(nn.Module):
 
     def forward(self, pc, queries):
         kl, x = self.encode(pc)
-        print(x.shape)
+        # print(x.shape)
         o = self.decode(x, queries).squeeze(-1)
 
         # return o.squeeze(-1), kl

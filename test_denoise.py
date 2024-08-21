@@ -53,7 +53,9 @@ if __name__ == "__main__":
     grid = torch.from_numpy(np.stack([xv, yv, zv]).astype(np.float32)).view(3, -1).transpose(0, 1)[None].to(device, non_blocking=True)
 
     with torch.no_grad():
-        surface = np.load('/data/ljf/plane.npz')['vol_points']
+        # surface = np.load('/data/ljf/plane.npz')['vol_points']
+        surface = np.load('/data/ljf/shapenet_test/10155655850468db78d106ce0a280f87/10155655850468db78d106ce0a280f87_points.npz')['coarse_surface_points']
+
         surface = torch.Tensor(surface)
         surface = surface.unsqueeze(0)
         print(surface.dtype)
@@ -76,14 +78,17 @@ if __name__ == "__main__":
         input_points.export('input.ply')
 
         kl, latents = ae.encode(surface2048)
-        # model(surface2048, grid)['logits']
-        # print(latents.shape)
-        # print(latents.dtype)
-        # exit(0)
+
+        rnd_normal = torch.randn([latents.shape[0], 1, 1], device=latents.device)
+        P_mean=-1.2
+        P_std=1.2
+        sigma = (rnd_normal * P_std + P_mean).exp()
+        n = torch.randn_like(latents) * sigma
+        
         # denoise latents
         latents = model.denoise(
-            latents, cond=torch.Tensor([0]).long().to(device),
-            num_steps=18, start_step=6
+            latents+n, cond=torch.Tensor([0]).long().to(device),
+            # num_steps=24
         ).float()
         # print(latents.dtype)
         output = ae.decode(latents, grid).squeeze(-1)
@@ -94,4 +99,4 @@ if __name__ == "__main__":
         verts -= 1.
         m = trimesh.Trimesh(verts, faces)
 
-        m.export('output.obj')
+        m.export('test_denoise_output.obj')
